@@ -269,25 +269,91 @@ class Tray:
         }
 
         self._connection = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        self._register_source = 0
         self._regs = [
             _register(self._connection, ITEM_PATH, _interface(_SNI_XML), self._on_item_call),
             _register(self._connection, ITEM_PATH, _interface(_PROPS_XML), self._on_item_props),
             _register(self._connection, MENU_PATH, _interface(_MENU_XML), self._on_menu_call),
             _register(self._connection, MENU_PATH, _interface(_PROPS_XML), self._on_menu_props),
         ]
-        self._connection.call_sync(
-            WATCHER_BUS,
-            WATCHER_PATH,
-            WATCHER_BUS,
-            "RegisterStatusNotifierItem",
-            GLib.Variant("(s)", (ITEM_PATH,)),
-            None,
-            Gio.DBusCallFlags.NONE,
-            3000,
-            None,
+        # The bar owns the watcher. Restarting the shell drops every item that
+        # does not register again, which leaves an empty tray slot.
+        self._subs = (
+            self._connection.signal_subscribe(
+                WATCHER_BUS,
+                WATCHER_BUS,
+                "StatusNotifierHostRegistered",
+                WATCHER_PATH,
+                None,
+                Gio.DBusSignalFlags.NONE,
+                self._schedule_register,
+            ),
+            self._connection.signal_subscribe(
+                "org.freedesktop.DBus",
+                "org.freedesktop.DBus",
+                "NameOwnerChanged",
+                "/org/freedesktop/DBus",
+                WATCHER_BUS,
+                Gio.DBusSignalFlags.NONE,
+                self._on_watcher_owner,
+            ),
         )
+        self._register_sync()
         self._connection.emit_signal(None, ITEM_PATH, SNI_IFACE, "NewIcon", None)
         self._connection.emit_signal(None, ITEM_PATH, SNI_IFACE, "NewTitle", None)
+
+    def _register_sync(self) -> None:
+        try:
+            self._connection.call_sync(
+                WATCHER_BUS,
+                WATCHER_PATH,
+                WATCHER_BUS,
+                "RegisterStatusNotifierItem",
+                GLib.Variant("(s)", (ITEM_PATH,)),
+                None,
+                Gio.DBusCallFlags.NONE,
+                3000,
+                None,
+            )
+        except GLib.Error as exc:
+            # The bar may not be up yet. NameOwnerChanged registers us when it is.
+            print(f"widgie-clock: tray register failed: {exc}", file=sys.stderr)
+
+    def _on_watcher_owner(self, _connection, _sender, _path, _interface, _signal, params) -> None:
+        _name, _old, new = params.unpack()
+        if new:
+            self._schedule_register()
+
+    def _schedule_register(self, *_args) -> None:
+        if self._register_source:
+            return
+        self._register_source = GLib.timeout_add(300, self._register_soon)
+
+    def _register_soon(self) -> bool:
+        self._register_source = 0
+        try:
+            self._connection.call(
+                WATCHER_BUS,
+                WATCHER_PATH,
+                WATCHER_BUS,
+                "RegisterStatusNotifierItem",
+                GLib.Variant("(s)", (ITEM_PATH,)),
+                None,
+                Gio.DBusCallFlags.NONE,
+                3000,
+                None,
+                self._on_register_done,
+                None,
+            )
+        except GLib.Error as exc:
+            print(f"widgie-clock: tray register failed: {exc}", file=sys.stderr)
+        return False
+
+    def _on_register_done(self, _source, result, *_data) -> None:
+        try:
+            self._connection.call_finish(result)
+        except GLib.Error as exc:
+            print(f"widgie-clock: tray register failed: {exc}", file=sys.stderr)
 
     def update(self, locked: bool, start_at_login: bool) -> None:
         self.locked = locked
