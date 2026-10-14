@@ -12,7 +12,7 @@ from gi.repository import Gdk, GLib, Gtk, Gtk4LayerShell
 
 from widgie_clock.autostart import set_enabled
 from widgie_clock.clock import draw_clock, hand_angles
-from widgie_clock.menu import lock_label
+from widgie_clock.menu import lock_label, menu_click
 from widgie_clock.outputs import choose_output, list_outputs
 from widgie_clock.placement import clamp_origin, default_origin
 from widgie_clock.settings import AppSettings, SettingsStore
@@ -42,6 +42,7 @@ class ClockOverlay:
         self.tray = None
         self._updating_menu = False
         self._drag_origin = (0, 0)
+        self._menu_dismissed_by_click = False
 
         output = choose_output(list_outputs(), settings.monitor)
         if output is None:
@@ -107,6 +108,7 @@ class ClockOverlay:
         box.append(self._startup_button)
         box.append(exit_button)
         self.popover.set_child(box)
+        self.popover.connect("closed", self._on_menu_closed)
         self._refresh_menu()
 
         self._apply_cursor()
@@ -220,8 +222,21 @@ class ClockOverlay:
         self._capture()
         self.store.save(self.settings)
 
+    def _on_menu_closed(self, *_args) -> None:
+        self._menu_dismissed_by_click = True
+        GLib.idle_add(self._clear_menu_click)
+
+    def _clear_menu_click(self) -> bool:
+        self._menu_dismissed_by_click = False
+        return GLib.SOURCE_REMOVE
+
     def _on_right_click(self, _gesture, _n_press, x: float, y: float) -> None:
         if self.settings.locked:
+            return
+        action = menu_click(self.popover.is_visible(), self._menu_dismissed_by_click)
+        self._menu_dismissed_by_click = False
+        if action != "open":
+            self.popover.popdown()
             return
         rect = Gdk.Rectangle()
         rect.x = int(x)

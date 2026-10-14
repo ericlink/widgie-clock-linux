@@ -1,11 +1,16 @@
 import unittest
 
 from widgie_clock.autostart import MARKER, desktop_text, is_enabled, set_enabled, sync
-from widgie_clock.menu import EXIT_ID, LOCK_ID, STARTUP_ID, lock_label, menu_tree
+from widgie_clock.menu import EXIT_ID, LOCK_ID, STARTUP_ID, lock_label, menu_click, menu_tree
 from widgie_clock.tray import layout_variant
 
 
 class MenuTests(unittest.TestCase):
+    def test_click_toggles_the_menu(self) -> None:
+        self.assertEqual(menu_click(False, False), "open")
+        self.assertEqual(menu_click(True, False), "close")
+        self.assertEqual(menu_click(False, True), "ignore")
+
     def test_lock_label_matches_windows(self) -> None:
         self.assertEqual(lock_label(True), "Unlock to move")
         self.assertEqual(lock_label(False), "Lock (click-through)")

@@ -12,6 +12,19 @@ def lock_label(locked: bool) -> str:
     return "Unlock to move" if locked else "Lock (click-through)"
 
 
+def menu_click(visible: bool, dismissed_by_click: bool) -> str:
+    """Click opens the menu. The next click closes it.
+
+    A popover hides itself before the owner's click handler runs, so that
+    second click shows up with the menu already gone. Leave it closed.
+    """
+    if visible:
+        return "close"
+    if dismissed_by_click:
+        return "ignore"
+    return "open"
+
+
 def menu_tree(locked: bool, start_at_login: bool) -> dict:
     return {
         "id": 0,
